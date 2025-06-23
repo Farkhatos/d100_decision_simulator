@@ -1,0 +1,138 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from ipywidgets import interact, IntSlider
+
+%matplotlib inline
+np.random.seed(42)
+sns.set_theme()  # Apply Seaborn's default style
+
+def calculate_optimal_thresholds(max_rolls=10):
+    """
+    Рассчитывает оптимальные пороги и матожидания для игры с 100-гранным кубиком.
+    
+    Args:
+        max_rolls (int): Максимальное число бросков (по умолчанию 10).
+    
+    Returns:
+        tuple: Список порогов и список матожиданий для каждого броска.
+    """
+    thresholds = [0] * max_rolls
+    expected_values = [0] * max_rolls
+    expected_values[max_rolls-1] = 50.5
+    for i in range(max_rolls-2, -1, -1):
+        threshold = int(np.ceil(expected_values[i+1]))
+        thresholds[i] = threshold
+        sum_above = sum(range(threshold, 101))
+        prob_above = (100 - threshold + 1) / 100
+        prob_below = (threshold - 1) / 100
+        expected_values[i] = (sum_above / 100) + prob_below * expected_values[i+1]
+    thresholds[max_rolls-1] = 0
+    return thresholds, expected_values
+
+thresholds, expected_values = calculate_optimal_thresholds()
+print("Пороги для каждого броска (1-10):", thresholds)
+print("Матожидания для каждого броска (1-10):", [round(ev, 2) for ev in expected_values])
+
+plt.figure(figsize=(8, 5))
+plt.plot(range(1, 11), thresholds, marker='o', label='Пороги')
+plt.title('Пороговые значения для оптимальной стратегии')
+plt.xlabel('Номер броска')
+plt.ylabel('Порог')
+plt.grid(True)
+plt.legend()
+plt.savefig('thresholds_plot.png')
+plt.show()
+
+def simulate_game(strategy, max_rolls=10, custom_threshold=80):
+    """
+    Симулирует одну игру с 100-гранным кубиком для заданной стратегии.
+    
+    Args:
+        strategy (str): Стратегия ('optimal', 'naive_last', 'conservative').
+        max_rolls (int): Максимальное число бросков.
+        custom_threshold (int): Порог для консервативной стратегии.
+    
+    Returns:
+        int: Выигрыш в тысячах долларов.
+    """
+    for roll in range(max_rolls):
+        value = np.random.randint(1, 101)
+        if roll == max_rolls - 1:
+            return value
+        if strategy == "optimal":
+            if value >= thresholds[roll]:
+                return value
+        elif strategy == "naive_last":
+            continue
+        elif strategy == "conservative":
+            if value >= custom_threshold:
+                return value
+    return value
+
+print("Пример выигрыша (оптимальная):", simulate_game("optimal"))
+print("Пример выигрыша (наивная):", simulate_game("naive_last"))
+print("Пример выигрыша (консервативная, порог=80):", simulate_game("conservative"))
+
+def run_simulations(n_simulations=10000, max_rolls=10):
+    """
+    Проводит массовые симуляции для заданных стратегий.
+    
+    Args:
+        n_simulations (int): Число симуляций.
+        max_rolls (int): Максимальное число бросков.
+    
+    Returns:
+        pd.DataFrame: Таблица с результатами выигрышей.
+    """
+    strategies = ["optimal", "naive_last", "conservative"]
+    results = {strategy: [] for strategy in strategies}
+    for strategy in strategies:
+        for _ in range(n_simulations):
+            results[strategy].append(simulate_game(strategy, max_rolls))
+    return pd.DataFrame(results)
+
+df_results = run_simulations()
+print("Статистика выигрышей:")
+print(df_results.describe())
+df_results.to_csv('simulation_results.csv', index=False)
+
+plt.figure(figsize=(12, 6))
+for strategy in df_results.columns:
+    sns.histplot(df_results[strategy], label=strategy, alpha=0.5, bins=20)
+plt.title("Распределение выигрышей для разных стратегий")
+plt.xlabel("Выигрыш ($ тысяч)")
+plt.ylabel("Частота")
+plt.legend()
+plt.savefig('distribution_plot.png')
+plt.show()
+
+means = df_results.mean()
+plt.figure(figsize=(8, 5))
+means.plot(kind="bar", color=["blue", "orange", "green"])
+plt.title("Средний выигрыш по стратегиям")
+plt.ylabel("Средний выигрыш ($ тысяч)")
+plt.axhline(y=90.91, color='red', linestyle='--', label='Теоретическое ожидание (оптимальная)')
+plt.legend()
+plt.savefig('mean_plot.png')
+plt.show()
+
+def simulate_custom_threshold(threshold=80):
+    """
+    Симулирует 1000 игр с консервативной стратегией и заданным порогом.
+    
+    Args:
+        threshold (int): Порог для принятия значения.
+    """
+    results = [simulate_game("conservative", custom_threshold=threshold) for _ in range(1000)]
+    plt.figure(figsize=(8, 5))
+    sns.histplot(results, bins=20)
+    plt.title(f"Распределение выигрышей (консервативная стратегия, порог={threshold})")
+    plt.xlabel("Выигрыш ($ тысяч)")
+    plt.ylabel("Частота")
+    plt.savefig(f'custom_threshold_{threshold}.png')
+    plt.show()
+    print(f"Средний выигрыш при пороге {threshold}: {np.mean(results):.2f}")
+
+interact(simulate_custom_threshold, threshold=IntSlider(min=1, max=100, step=1, value=80))
